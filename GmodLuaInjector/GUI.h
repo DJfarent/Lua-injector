@@ -4,6 +4,7 @@
 #include <d3d9.h>
 #include <filesystem>
 #include <functional>
+#include <iostream>
 #include "ImGui/imgui.h"
 #include "ImGui/imgui_impl_dx9.h"
 #include "ImGui/imgui_impl_win32.h"
@@ -30,8 +31,6 @@ char buf[65535];
 namespace fs = std::filesystem;
 static bool openMenu = false;
 
-// I'm aware this hurts eyes, credits to https://discourse.dearimgui.org/t/how-to-mix-imgui-treenode-and-filesystem-to-print-the-current-directory-recursively/37
-// I was just real lazy to make my own...
 std::string doFileStuff()
 {
 	static int selection_mask = (1 << 2);
@@ -75,19 +74,22 @@ std::string doFileStuff()
 	ImGui::PopStyleVar();
 	return output;
 }
+
 extern std::string lastFileName;
 extern std::string selectedFilePath;
+
 long __stdcall hkEndScene(LPDIRECT3DDEVICE9 pDevice)
 {
 	static std::string selectedFilePathTemp = "";
 	static bool initialized = false;
+	
 	if(!initialized)
 	{
+		std::cout << "[GUI] Initializing ImGui context..." << std::endl;
 		ImGui::CreateContext();
 		ImGuiIO& io = ImGui::GetIO();
 		io.ConfigFlags = ImGuiConfigFlags_NoMouseCursorChange;
 
-		// Credits to some random guy who sent me this cool style.
 		ImGui::StyleColorsClassic();
 		auto vStyle = &ImGui::GetStyle();
 		vStyle->WindowPadding = ImVec2(15, 15);
@@ -138,25 +140,31 @@ long __stdcall hkEndScene(LPDIRECT3DDEVICE9 pDevice)
 		vStyle->Colors[ImGuiCol_ModalWindowDarkening] = ImVec4(1.00f, 0.98f, 0.95f, 0.73f);
 		vStyle->WindowTitleAlign.x = 0.50f;
 		vStyle->FrameRounding = 2.0f;
+		
+		std::cout << "[GUI] Initializing Win32..." << std::endl;
 		ImGui_ImplWin32_Init(window);
+		std::cout << "[GUI] Initializing D3D9..." << std::endl;
 		ImGui_ImplDX9_Init(pDevice);
+		std::cout << "[GUI] ImGui initialization complete!" << std::endl;
 		initialized = true;
 	};
 
-	bool tempState = GetAsyncKeyState(VK_INSERT);
+	bool tempState = GetAsyncKeyState(VK_INSERT) & 0x8000;
 	static bool lastState = false;
-	if (tempState != lastState && tempState)
+	if (tempState && !lastState) {
 		openMenu = !openMenu;
-	
-	
+		std::cout << "[GUI] Menu toggled: " << (openMenu ? "ON" : "OFF") << std::endl;
+	}
 	lastState = tempState;
+	
 	ImGui_ImplDX9_NewFrame();
 	ImGui_ImplWin32_NewFrame();
 	ImGui::NewFrame();
 
 	if (openMenu)
 	{
-		ImGui::Begin("Garry's Mod Scripthook/Executor - Coded by t.me/Gaztoof");
+		ImGui::SetNextWindowSize(ImVec2(500, 400), ImGuiCond_FirstUseEver);
+		ImGui::Begin("Garry's Mod Scripthook/Executor");
 		static int i = 0;
 		if (ImGui::Button("Executor", ImVec2(100, 20)))i = 0;
 		ImGui::SameLine();
@@ -165,7 +173,7 @@ long __stdcall hkEndScene(LPDIRECT3DDEVICE9 pDevice)
 		{
 		case 0:
 		{
-			ImGui::InputTextMultiline("Yourscript", buf, IM_ARRAYSIZE(buf), ImVec2(-FLT_MIN, ImGui::GetTextLineHeight() * 16), ImGuiInputTextFlags_AllowTabInput);
+			ImGui::InputTextMultiline("##script", buf, IM_ARRAYSIZE(buf), ImVec2(-FLT_MIN, ImGui::GetTextLineHeight() * 16), ImGuiInputTextFlags_AllowTabInput);
 			if (selectedFilePath != selectedFilePathTemp)
 			{
 				if (selectedFilePath.length())
@@ -195,7 +203,7 @@ long __stdcall hkEndScene(LPDIRECT3DDEVICE9 pDevice)
 				fileContent = std::string((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
 			}
 			filePath = temp;
-			ImGui::InputTextMultiline("ScriptRead", (char*)fileContent.c_str(), fileContent.length(), ImVec2(-FLT_MIN, ImGui::GetTextLineHeight() * 16), ImGuiInputTextFlags_ReadOnly);
+			ImGui::InputTextMultiline("##scripts", (char*)fileContent.c_str(), fileContent.length(), ImVec2(-FLT_MIN, ImGui::GetTextLineHeight() * 16), ImGuiInputTextFlags_ReadOnly);
 			break;
 		}
 		default:
@@ -204,34 +212,61 @@ long __stdcall hkEndScene(LPDIRECT3DDEVICE9 pDevice)
 		ImGui::End();
 	}
 
-
 	ImGui::EndFrame();
 	ImGui::Render();
 	ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
 
 	return oEndScene(pDevice);
 }
-LRESULT __stdcall WndProc(const HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 
+LRESULT __stdcall WndProc(const HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 	if (openMenu && ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam))
 		return true;
 
 	return CallWindowProc(oWndProc, hWnd, uMsg, wParam, lParam);
 }
+
 void InitializeGUI() {
 	ZeroMemory(buf, 65535);
+	
+	std::cout << "[GUI] Starting Kiero initialization..." << std::endl;
+	int attempts = 0;
 	while (true)
 	{
-		if (kiero::init(kiero::RenderType::D3D9) == kiero::Status::Success)
+		attempts++;
+		std::cout << "[GUI] Kiero init attempt #" << attempts << "..." << std::endl;
+		
+		auto status = kiero::init(kiero::RenderType::D3D9);
+		if (status == kiero::Status::Success)
 		{
-			kiero::bind(42, (void**)&oEndScene, hkEndScene);
+			std::cout << "[GUI] Kiero initialized successfully!" << std::endl;
+			
+			std::cout << "[GUI] Binding EndScene hook..." << std::endl;
+			auto bindStatus = kiero::bind(42, (void**)&oEndScene, hkEndScene);
+			if (bindStatus == kiero::Status::Success) {
+				std::cout << "[GUI] EndScene hook bound successfully!" << std::endl;
+			} else {
+				std::cout << "[GUI] ERROR: Failed to bind EndScene hook!" << std::endl;
+			}
 
-#ifndef _WIN64
-#error Please, update this.
-#endif
-			window = FindWindow(NULL, L"Garry's Mod (x64)"); // Change that for x86!!!!
-			oWndProc = (WNDPROC)SetWindowLongPtrA(window, GWL_WNDPROC, (LONG_PTR)WndProc);
+			std::cout << "[GUI] Finding Garry's Mod window..." << std::endl;
+			window = FindWindow(NULL, L"Garry's Mod (x64)");
+			if (window) {
+				std::cout << "[GUI] Window found! Handle: " << window << std::endl;
+				oWndProc = (WNDPROC)SetWindowLongPtrA(window, GWL_WNDPROC, (LONG_PTR)WndProc);
+				std::cout << "[GUI] Window procedure hooked!" << std::endl;
+			} else {
+				std::cout << "[GUI] ERROR: Could not find Garry's Mod window!" << std::endl;
+			}
 			break;
+		}
+		else {
+			std::cout << "[GUI] Kiero init failed, retrying..." << std::endl;
+			Sleep(100);
+			if (attempts > 50) {
+				std::cout << "[GUI] ERROR: Kiero init failed after 50 attempts!" << std::endl;
+				break;
+			}
 		}
 	}
 }

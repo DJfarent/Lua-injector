@@ -14,11 +14,12 @@
 #include "Utils.h"
 #include "GUI.h"
 #include "Executor.h"
+#include "Config.h"
 
 #if _WIN64
 #define ConColorMsg "?ConColorMsg@@YAXAEBVColor@@PEBDZZ"
 #else
-#define ConColorMsg "?ConColorMsg@@YAXABVColor@@PBDZZ"
+#define ConColorMsg "?ConColorMsg@@YAXAEBVColor@@PBDZZ"
 #endif
 
 typedef __int64(__fastcall* RunStringEx)(PVOID _this, const char* filename, const char* path, const char* stringToRun, bool run, bool printErrors, bool dontPushErrors, bool noReturns);
@@ -29,6 +30,7 @@ CCvar* cvarInterface = nullptr;
 std::string cvarName = "";
 std::string toRun = "";
 std::string lastFileName = "";
+
 bool __fastcall hkRunStringEx(PVOID _this,
 #ifndef _WIN64
     void*,
@@ -38,21 +40,23 @@ bool __fastcall hkRunStringEx(PVOID _this,
     if (!strcmp(filename, "LuaCmd") || !strcmp(filename, "RunString(Ex)") || !strlen(filename))
         return oRunStringEx(_this, filename, path, stringToRun, run, printErrors, dontPushErrors, noReturns);
     lastFileName = std::string(filename);
-    // To those not understanding what this is: this runs a lua script that sets a convar as "servername - serverip", and I just retrieve it and use it to save.
     oRunStringEx(_this, filename, path, toRun.c_str(), run, printErrors, dontPushErrors, noReturns);
-    // This is causing me problems in the x86 implementation...
-    // For some reasons, calling it will simply make you crash... Tried fixing in a lots of ways, but just can't figure it out yet and i'm lazy to deeply search, so whoever fixes this, the cheat will work in X86 without any problems as it was first made to work with both.
+
     uintptr_t cvar = (uintptr_t)cvarInterface->FindVar(cvarName.c_str());
     if (!cvar)
         return oRunStringEx(_this, filename, path, stringToRun, run, printErrors, dontPushErrors, noReturns);
+    
     std::string ip = CVarStr(cvar);
-    Fix(ip); // Fix = make it something "save'able", as some characters are blacklisted for file names.
+    Fix(ip);
+    
     if(ip.find(" - loopback") != std::string::npos)
         return oRunStringEx(_this, filename, path, stringToRun, run, printErrors, dontPushErrors, noReturns);
-    std::string SavePath = "C:/GaztoofScriptHook/" + ip + "/" + std::string(filename);
+    
+    std::string SavePath = Config::Instance().GetScriptDirectory() + ip + "/" + std::string(filename);
     Sanitize(SavePath);
     StrToAscii(SavePath);
     std::string extension = ToLower(GetExtension(SavePath));
+    
     if (extension == ".lua")
     {
         CreateDirectoryRec((SavePath));
@@ -62,7 +66,7 @@ bool __fastcall hkRunStringEx(PVOID _this,
     }
     return oRunStringEx(_this, filename, path, stringToRun, run, printErrors, dontPushErrors, noReturns);
 }
-// This method is only used when you're in the Debug build, as it will run from the console and not the ImGui Menu.
+
 void InjectThread()
 {
     while (true)
@@ -135,7 +139,6 @@ void Main()
     std::thread(InjectThread).detach();
 #endif
 
-    //that's dirty ik
     do {
         cLuaInterface = LuaShared->GetLuaInterface(0);
         while (cLuaInterface == nullptr)
@@ -160,4 +163,3 @@ BOOL APIENTRY DllMain(HMODULE hModule, uintptr_t ul_reason_for_call, LPVOID lpRe
         std::thread(Main).detach();
     return TRUE;
 }
-
