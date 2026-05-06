@@ -1,165 +1,323 @@
 #include <Windows.h>
 #include <stdint.h>
 #include <iostream>
-#include <fstream>
 #include <string>
-#include <sstream>
 #include <thread>
+#include <fstream>
+#include <sstream>
 
 #include "Console.h"
 #include "Color.h"
-#include "ICVar.h"
-#include "CLuaShared.h"
-#include "Hooking.h"
 #include "Utils.h"
-#include "GUI.h"
-#include "Executor.h"
+#include "CLuaShared.h"
+#include "ICVar.h"
+#include "Hooking.h"
 #include "Config.h"
+#include "Executor.h"
 
-#if _WIN64
-#define ConColorMsg "?ConColorMsg@@YAXAEBVColor@@PEBDZZ"
-#else
-#define ConColorMsg "?ConColorMsg@@YAXAEBVColor@@PBDZZ"
-#endif
-
+// Lua function signature
 typedef __int64(__fastcall* RunStringEx)(PVOID _this, const char* filename, const char* path, const char* stringToRun, bool run, bool printErrors, bool dontPushErrors, bool noReturns);
 
-RunStringEx oRunStringEx;
+// Global variables
+RunStringEx oRunStringEx = nullptr;
 PVOID cLuaInterface = nullptr;
 CCvar* cvarInterface = nullptr;
-std::string cvarName = "";
-std::string toRun = "";
 std::string lastFileName = "";
 
+// Hook callback
 bool __fastcall hkRunStringEx(PVOID _this,
 #ifndef _WIN64
     void*,
 #endif
     const char* filename, const char* path, const char* stringToRun, bool run, bool printErrors, bool dontPushErrors, bool noReturns)
 {
-    if (!strcmp(filename, "LuaCmd") || !strcmp(filename, "RunString(Ex)") || !strlen(filename))
-        return oRunStringEx(_this, filename, path, stringToRun, run, printErrors, dontPushErrors, noReturns);
-    lastFileName = std::string(filename);
-    oRunStringEx(_this, filename, path, toRun.c_str(), run, printErrors, dontPushErrors, noReturns);
-
-    uintptr_t cvar = (uintptr_t)cvarInterface->FindVar(cvarName.c_str());
-    if (!cvar)
-        return oRunStringEx(_this, filename, path, stringToRun, run, printErrors, dontPushErrors, noReturns);
-    
-    std::string ip = CVarStr(cvar);
-    Fix(ip);
-    
-    if(ip.find(" - loopback") != std::string::npos)
-        return oRunStringEx(_this, filename, path, stringToRun, run, printErrors, dontPushErrors, noReturns);
-    
-    std::string SavePath = Config::Instance().GetScriptDirectory() + ip + "/" + std::string(filename);
-    Sanitize(SavePath);
-    StrToAscii(SavePath);
-    std::string extension = ToLower(GetExtension(SavePath));
-    
-    if (extension == ".lua")
+    // Skip internal Lua calls
+    if (!filename || !strlen(filename) || !strcmp(filename, "LuaCmd") || !strcmp(filename, "RunString(Ex)"))
     {
-        CreateDirectoryRec((SavePath));
-        std::ofstream outfile(SavePath);
-        outfile << stringToRun << std::endl;
-        PrintWithPrefix("Downloading file " + std::string(filename), Color(0, 145, 255));
+        return oRunStringEx(_this, filename, path, stringToRun, run, printErrors, dontPushErrors, noReturns);
     }
-    return oRunStringEx(_this, filename, path, stringToRun, run, printErrors, dontPushErrors, noReturns);
+
+    lastFileName = std::string(filename);
+    std::cout << "[HOOK] Intercepted script: " << filename << std::endl;
+    
+    // Execute the script
+    bool result = oRunStringEx(_this, filename, path, stringToRun, run, printErrors, dontPushErrors, noReturns);
+    std::cout << "[HOOK] Executed successfully!" << std::endl;
+    
+    return result;
 }
 
-void InjectThread()
+// File picker dialog
+std::string OpenFileDialog()
 {
+    OPENFILENAMEA ofn;
+    CHAR szFile[260] = { 0 };
+
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = NULL;
+    ofn.lpstrFile = szFile;
+    ofn.nMaxFile = sizeof(szFile);
+    ofn.lpstrFilter = "Lua Files\0*.lua\0All Files\0*.*\0";
+    ofn.nFilterIndex = 1;
+    ofn.lpstrFileTitle = NULL;
+    ofn.nMaxFileTitle = 0;
+    ofn.lpstrInitialDir = NULL;
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+
+    if (GetOpenFileNameA(&ofn))
+    {
+        std::cout << "[FILE PICKER] Selected: " << szFile << std::endl;
+        return std::string(szFile);
+    }
+    else
+    {
+        std::cout << "[FILE PICKER] Cancelled or error" << std::endl;
+        return "";
+    }
+}
+
+// Read file contents
+std::string ReadFileContents(const std::string& path)
+{
+    std::ifstream file(path);
+    if (!file.is_open())
+    {
+        std::cout << "[ERROR] Could not open file: " << path << std::endl;
+        return "";
+    }
+
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    file.close();
+    
+    std::string contents = buffer.str();
+    std::cout << "[FILE] Read " << contents.length() << " bytes" << std::endl;
+    
+    return contents;
+}
+
+// Input thread for manual testing
+void InputThread()
+{
+    std::cout << "\n[INPUT] Commands: 'file' to load file, 'exit' to quit\n" << std::endl;
+    
     while (true)
     {
-        std::cout << "Please, enter the path to your .Lua file: ";
-        char cInput[256];
-        std::cin.getline(cInput, 256);
+        std::cout << "> ";
+        std::string input;
+        std::getline(std::cin, input);
 
-        std::string input(cInput);
-
-        if (oRunStringEx && cLuaInterface)
+        if (input == "file")
         {
-            size_t pos = std::string::npos;
-            while ((pos = input.find('"')) != std::string::npos)
-                input.erase(pos);
+            if (!oRunStringEx || !cLuaInterface)
+            {
+                std::cout << "[ERROR] Not ready yet!" << std::endl;
+                continue;
+            }
 
-            std::string filecontent = readContent(input);
-            Execute(input, filecontent);
+            std::string filePath = OpenFileDialog();
+            if (filePath.empty())
+            {
+                std::cout << "[ERROR] No file selected" << std::endl;
+                continue;
+            }
+
+            std::string fileContents = ReadFileContents(filePath);
+            if (fileContents.empty())
+            {
+                std::cout << "[ERROR] Could not read file" << std::endl;
+                continue;
+            }
+
+            Execute(filePath, fileContents);
+        }
+        else if (input == "exit")
+        {
+            break;
         }
     }
 }
 
+// Keyboard hook for INSERT key
+LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
+{
+    if (nCode == HC_ACTION)
+    {
+        if (wParam == WM_KEYDOWN)
+        {
+            KBDLLHOOKSTRUCT* pKeyBoard = (KBDLLHOOKSTRUCT*)lParam;
+            
+            // INSERT key = 45
+            if (pKeyBoard->vkCode == VK_INSERT)
+            {
+                std::cout << "[KEYBOARD] INSERT pressed!" << std::endl;
+
+                if (!oRunStringEx || !cLuaInterface)
+                {
+                    std::cout << "[ERROR] Not ready yet!" << std::endl;
+                    return CallNextHookEx(NULL, nCode, wParam, lParam);
+                }
+
+                std::string filePath = OpenFileDialog();
+                if (filePath.empty())
+                {
+                    return CallNextHookEx(NULL, nCode, wParam, lParam);
+                }
+
+                std::string fileContents = ReadFileContents(filePath);
+                if (fileContents.empty())
+                {
+                    return CallNextHookEx(NULL, nCode, wParam, lParam);
+                }
+
+                Execute(filePath, fileContents);
+            }
+        }
+    }
+
+    return CallNextHookEx(NULL, nCode, wParam, lParam);
+}
+
+// Main injection function
 void Main()
 {
-    srand(time(nullptr));
-    cvarName = RandomString(10);
-    toRun = "CreateClientConVar(\"";
-    toRun += cvarName;
-    toRun += "\", \"\", true, false) :SetString(GetHostName() .. \" - \" ..game.GetIPAddress())";
+    std::cout << "\n========================================" << std::endl;
+    std::cout << "  GmodLuaInjector - Fresh Build" << std::endl;
+    std::cout << "========================================\n" << std::endl;
 
-#ifdef _DEBUG
-#pragma region Console Setup
-    AllocConsole();
-    FILE* f;
-    freopen_s(&f, "CONOUT$", "w", stdout);
-    freopen_s(&f, "CONIN$", "r", stdin);
-    SetConsoleTitle(L"Epic Gmod Scripthook - Coded by t.me/Gaztoof");
-#pragma endregion
-#endif
+    // Get ConColorMsg for colored output
+    HMODULE tier0 = GetModuleHandleW(L"tier0.dll");
+    if (tier0)
+    {
+        #if _WIN64
+        #define ConColorMsg "?ConColorMsg@@YAXAEBVColor@@PEBDZZ"
+        #else
+        #define ConColorMsg "?ConColorMsg@@YAXAEBVColor@@PBDZZ"
+        #endif
+        
+        fn = (MsgFn)GetProcAddress(tier0, ConColorMsg);
+        if (fn)
+        {
+            std::cout << "[OK] Got ConColorMsg" << std::endl;
+            PrintWithPrefix("GmodLuaInjector Loaded!", Color(0, 255, 0));
+        }
+    }
 
-    fn = (MsgFn)GetProcAddress(GetModuleHandleW(L"tier0.dll"), ConColorMsg);
-    PrintWithPrefix((char*)"Successfully Injected!", Color(255,255,0));
-
-    InitializeGUI();
-#pragma region CVar Setup
+    // Get CVars interface
+    std::cout << "\n[INIT] Getting CVars interface..." << std::endl;
     cvarInterface = (CCvar*)GetInterface("vstdlib.dll", "VEngineCvar007");
     if (cvarInterface)
     {
-        std::cout << "Found CCVar: " << cvarInterface << std::endl;
-        PrintWithPrefix((char*)"Successfully found CCVar!", Color(255,255,0));
+        std::cout << "[OK] CVars: " << cvarInterface << std::endl;
+        PrintWithPrefix("CVars OK!", Color(0, 255, 0));
     }
-#pragma endregion
-    
-#pragma region CLua Setup
+    else
+    {
+        std::cout << "[ERROR] Failed to get CVars" << std::endl;
+        PrintWithPrefix("CVars FAILED!", Color(255, 0, 0));
+    }
+
+    // Get Lua interface
+    std::cout << "\n[INIT] Getting Lua interface..." << std::endl;
     CLuaShared* LuaShared = (CLuaShared*)GetInterface("lua_shared.dll", "LUASHARED003");
-    int counter = -1;
-    do {
-        counter++;
-        if (counter == 1) std::cout << "Please, join a server..." << std::endl;
+    if (!LuaShared)
+    {
+        std::cout << "[ERROR] Failed to get LuaShared" << std::endl;
+        return;
+    }
+    std::cout << "[OK] LuaShared: " << LuaShared << std::endl;
+
+    // Wait for server join
+    std::cout << "\n[INIT] Waiting for Lua interface (join a server)..." << std::endl;
+    int waitCount = 0;
+    while (!cLuaInterface)
+    {
         cLuaInterface = LuaShared->GetLuaInterface(0);
-        Sleep(5);
-    } while (cLuaInterface == nullptr);
-    std::cout << "Found CLuaInterface: " << std::hex << cLuaInterface << std::endl;
-#pragma endregion
-
-    oRunStringEx = (RunStringEx)VMTHook((PVOID**)cLuaInterface, hkRunStringEx, 111);
-    PrintWithPrefix("Successfully Hooked!", Color(255, 255, 0));
-
-#ifdef _DEBUG
-    std::thread(InjectThread).detach();
-#endif
-
-    do {
-        cLuaInterface = LuaShared->GetLuaInterface(0);
-        while (cLuaInterface == nullptr)
+        if (!cLuaInterface)
         {
-            cLuaInterface = LuaShared->GetLuaInterface(0);
-            if (cLuaInterface != nullptr)
+            if (waitCount % 20 == 0)
             {
-                oRunStringEx = (RunStringEx)VMTHook((PVOID**)cLuaInterface, hkRunStringEx, 111);
-                PrintWithPrefix("Successfully ReHooked!", Color(255, 255, 0));
-                break;
-            }            
-            Sleep(10);
+                std::cout << "[WAIT] Still waiting..." << std::endl;
+                PrintWithPrefix("Join a server...", Color(255, 165, 0));
+            }
+            waitCount++;
+            Sleep(100);
         }
-        Sleep(10);
+    }
 
-    } while (true);
+    std::cout << "[OK] Lua interface found: " << cLuaInterface << std::endl;
+    PrintWithPrefix("Lua Interface Found!", Color(0, 255, 0));
+
+    // Try hooking at different offsets
+    std::cout << "\n[HOOK] Attempting to hook RunStringEx..." << std::endl;
+    int offsets[] = { 111, 112, 113, 110, 114, 115 };
+    bool hooked = false;
+
+    for (int offset : offsets)
+    {
+        std::cout << "[HOOK] Trying offset " << offset << "..." << std::endl;
+        oRunStringEx = (RunStringEx)VMTHook((PVOID**)cLuaInterface, hkRunStringEx, offset);
+        
+        if (oRunStringEx)
+        {
+            std::cout << "[OK] HOOKED at offset " << offset << "!" << std::endl;
+            PrintWithPrefix("Hooked!", Color(0, 255, 0));
+            hooked = true;
+            break;
+        }
+    }
+
+    if (!hooked)
+    {
+        std::cout << "[ERROR] Failed to hook at any offset!" << std::endl;
+        PrintWithPrefix("Hook Failed!", Color(255, 0, 0));
+        return;
+    }
+
+    std::cout << "\n[READY] Injector ready!" << std::endl;
+    std::cout << "[INFO] Press INSERT in Gmod to open file picker" << std::endl;
+    std::cout << "[INFO] Or type 'file' here to manually load a file\n" << std::endl;
+
+    // Start keyboard hook
+    HHOOK keyboardHook = SetWindowsHookExA(WH_KEYBOARD_LL, KeyboardProc, NULL, 0);
+    if (keyboardHook)
+    {
+        std::cout << "[OK] Keyboard hook installed" << std::endl;
+    }
+    else
+    {
+        std::cout << "[WARNING] Keyboard hook failed" << std::endl;
+    }
+
+    // Start input thread
+    std::thread(InputThread).detach();
+
+    // Keep main thread alive
+    MSG msg;
+    while (GetMessage(&msg, NULL, 0, 0))
+    {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+
+    UnhookWindowsHookEx(keyboardHook);
 }
 
-BOOL APIENTRY DllMain(HMODULE hModule, uintptr_t ul_reason_for_call, LPVOID lpReserved)
+// DLL entry point
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
 {
     if (ul_reason_for_call == DLL_PROCESS_ATTACH)
+    {
+        #ifdef _DEBUG
+        AllocConsole();
+        FILE* f;
+        freopen_s(&f, "CONOUT$", "w", stdout);
+        freopen_s(&f, "CONIN$", "r", stdin);
+        SetConsoleTitle(L"GmodLuaInjector - Console");
+        #endif
+
         std::thread(Main).detach();
+    }
     return TRUE;
 }

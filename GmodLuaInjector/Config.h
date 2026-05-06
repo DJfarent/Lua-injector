@@ -1,23 +1,36 @@
 #pragma once
-
 #include <Windows.h>
 #include <string>
 
-class Config {
+class Config
+{
 public:
-    static Config& Instance() {
+    static Config& Instance()
+    {
         static Config instance;
         return instance;
     }
 
-    const std::string& GetScriptDirectory() const { return scriptDirectory; }
-    void SetScriptDirectory(const std::string& path) { scriptDirectory = path; }
+    const std::string& GetScriptDirectory() const
+    {
+        return scriptDirectory;
+    }
 
-    uint32_t GetMenuHotkey() const { return menuHotkey; }
-    void SetMenuHotkey(uint32_t key) { menuHotkey = key; }
+    void SetScriptDirectory(const std::string& path)
+    {
+        scriptDirectory = path;
+    }
 
-    const std::string& GetLogFilePath() const { return logFilePath; }
-    
+    uint32_t GetMenuHotkey() const
+    {
+        return menuHotkey;
+    }
+
+    void SetMenuHotkey(uint32_t key)
+    {
+        menuHotkey = key;
+    }
+
 private:
     Config() = default;
     ~Config() = default;
@@ -26,6 +39,5 @@ private:
     Config& operator=(const Config&) = delete;
 
     std::string scriptDirectory = "C:/GaztoofScriptHook/";
-    std::string logFilePath = "gmod_injector.log";
     uint32_t menuHotkey = VK_INSERT;
 };

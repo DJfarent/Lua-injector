@@ -1,13 +1,29 @@
 #include <Windows.h>
-#include <stdint.h>
+#include <iostream>
+#include "Hooking.h"
+
 PVOID VMTHook(PVOID** src, PVOID dst, int index)
 {
-	// I could do tramp hooking instead of VMT hooking, but I came across a few problems while implementing my tramp, and VMT just makes it easier.
-	PVOID* VMT = *src;
-	PVOID ret = (VMT[index]);
-	DWORD originalProtection;
-	VirtualProtect(&VMT[index], sizeof(PVOID), PAGE_EXECUTE_READWRITE, &originalProtection);
-	VMT[index] = dst;
-	VirtualProtect(&VMT[index], sizeof(PVOID), originalProtection, &originalProtection);
-	return ret;
+    if (!src || !*src || !dst)
+    {
+        std::cout << "[HOOK] Invalid parameters!" << std::endl;
+        return nullptr;
+    }
+
+    PVOID* VMT = *src;
+    PVOID original = VMT[index];
+
+    DWORD oldProtection;
+    if (!VirtualProtect(&VMT[index], sizeof(PVOID), PAGE_EXECUTE_READWRITE, &oldProtection))
+    {
+        std::cout << "[HOOK] VirtualProtect failed!" << std::endl;
+        return nullptr;
+    }
+
+    VMT[index] = dst;
+
+    VirtualProtect(&VMT[index], sizeof(PVOID), oldProtection, &oldProtection);
+
+    std::cout << "[HOOK] VMT hook applied at index " << index << std::endl;
+    return original;
 }
