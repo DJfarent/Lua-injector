@@ -49,12 +49,12 @@ inline void Execute(const std::string& fileName, const std::string& stringToRun)
         int result = oRunStringEx(
             cLuaInterface,                  // this
             fileName.c_str(),               // filename
-            "server",                       // path - use "server" for server-side
+            "",
             stringToRun.c_str(),            // stringToRun
             true,                           // run
             true,                           // printErrors
-            false,                          // dontPushErrors
-            false                           // noReturns
+            true,                          // dontPushErrors
+            true                           // noReturns
         );
 
         std::cout << "[EXEC] RunStringEx returned: " << result << std::endl;

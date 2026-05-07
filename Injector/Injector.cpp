@@ -122,7 +122,7 @@ int main()
 
     // Build DLL path
     char dllPath[MAX_PATH];
-    sprintf_s(dllPath, MAX_PATH, "%s\\x64\\Release\\GmodLuaInjector.dll", currentDir);
+    sprintf_s(dllPath, MAX_PATH, "%s\\GmodLuaInjector.dll", currentDir);
     std::cout << "[INFO] DLL path: " << dllPath << std::endl;
 
     // Check if DLL exists
@@ -138,7 +138,8 @@ int main()
 
     // Find Gmod process
     std::cout << "\n[SEARCH] Looking for Garry's Mod x64 process..." << std::endl;
-    DWORD processID = FindProcessByName("hl2.exe");
+    DWORD processID = FindProcessByName("gmod.exe");
+
     
     if (processID == 0)
     {
