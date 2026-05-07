@@ -6,13 +6,16 @@
 #include "CLuaShared.h"
 #include "ICVar.h"
 
-typedef __int64(__fastcall* RunStringEx)(PVOID _this, const char* filename, const char* path, const char* stringToRun, bool run, bool printErrors, bool dontPushErrors, bool noReturns);
+// Correct signature for RunStringEx
+typedef int(__fastcall* RunStringEx)(PVOID _this, const char* filename, const char* path, const char* stringToRun, bool run, bool printErrors, bool dontPushErrors, bool noReturns);
 
 extern RunStringEx oRunStringEx;
 extern std::string lastFileName;
 
 inline void Execute(const std::string& fileName, const std::string& stringToRun)
 {
+    std::cout << "[EXEC] Starting execution..." << std::endl;
+    
     CLuaShared* LuaShared = (CLuaShared*)GetInterface("lua_shared.dll", "LUASHARED003");
     if (!LuaShared)
     {
@@ -36,24 +39,26 @@ inline void Execute(const std::string& fileName, const std::string& stringToRun)
         return;
     }
 
-    std::cout << "[EXEC] Executing: " << fileName << std::endl;
+    std::cout << "[EXEC] Executing file: " << fileName << std::endl;
+    std::cout << "[EXEC] Script size: " << stringToRun.length() << " bytes" << std::endl;
     PrintWithPrefix("Executing: " + fileName, Color(0, 154, 255));
 
     try
     {
-        __int64 result = oRunStringEx(
-            cLuaInterface,
-            lastFileName.c_str(),
-            "",
-            stringToRun.c_str(),
-            true,
-            true,
-            true,
-            true
+        // Call RunStringEx with proper parameters
+        int result = oRunStringEx(
+            cLuaInterface,                  // this
+            fileName.c_str(),               // filename
+            "server",                       // path - use "server" for server-side
+            stringToRun.c_str(),            // stringToRun
+            true,                           // run
+            true,                           // printErrors
+            false,                          // dontPushErrors
+            false                           // noReturns
         );
 
-        std::cout << "[EXEC] SUCCESS! Result: " << result << std::endl;
-        PrintWithPrefix("Executed successfully!", Color(0, 255, 0));
+        std::cout << "[EXEC] RunStringEx returned: " << result << std::endl;
+        PrintWithPrefix("Script executed!", Color(0, 255, 0));
     }
     catch (const std::exception& e)
     {

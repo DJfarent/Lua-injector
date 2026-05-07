@@ -15,9 +15,6 @@
 #include "Config.h"
 #include "Executor.h"
 
-// Lua function signature
-typedef __int64(__fastcall* RunStringEx)(PVOID _this, const char* filename, const char* path, const char* stringToRun, bool run, bool printErrors, bool dontPushErrors, bool noReturns);
-
 // Global variables
 RunStringEx oRunStringEx = nullptr;
 PVOID cLuaInterface = nullptr;
