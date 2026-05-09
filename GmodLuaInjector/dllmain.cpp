@@ -305,16 +305,14 @@ void Main()
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
 {
     if (ul_reason_for_call == DLL_PROCESS_ATTACH)
-    {
-        #ifdef _DEBUG
-        AllocConsole();
-        FILE* f;
-        freopen_s(&f, "CONOUT$", "w", stdout);
-        freopen_s(&f, "CONIN$", "r", stdin);
-        SetConsoleTitle(L"GmodLuaInjector - Console");
-        #endif
+{
+    AllocConsole();
+    FILE* f;
+    freopen_s(&f, "CONOUT$", "w", stdout);
+    freopen_s(&f, "CONIN$", "r", stdin);
+    SetConsoleTitle(L"GmodLuaInjector - Console");
 
-        std::thread(Main).detach();
-    }
+    std::thread(Main).detach();
+}
     return TRUE;
 }
